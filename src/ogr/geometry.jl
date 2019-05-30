@@ -27,6 +27,48 @@ unsafe_fromWKB(data, args...) = unsafe_fromWKB(Geometry, data, args...)
 
 fromWKB(data, args...) = unsafe_fromWKB(IGeometry, data, args...)
 
+function fromEWKB(data::Vector{UInt8}, args...)
+    srid, data = extractsrid(data)
+    if srid == nothing
+        geom = fromWKB(data, args...)
+    else
+        ref = importEPSG(srid)
+        geom = fromWKB(data, ref, args...)
+    end
+    geom
+end
+
+function samebyteorder(data::Vector{UInt8})
+    endian = data[1]
+    if ENDIAN_BOM == 0x04030201 && endian == 0x01
+        true
+    elseif ENDIAN_BOM == 0x01020304 && endian == 0x00
+        true
+    else
+        false
+    end
+end
+
+function hassrid(data::Vector{UInt8})
+    pos = samebyteorder(data) ? 5 : 2
+    return data[pos] == 0x20
+end
+
+function extractsrid(data::Vector{UInt8})
+    srid = nothing
+    if hassrid(data)
+        same = samebyteorder(data)
+        io = IOBuffer(data[6:9])
+        srid = Base.read(io, UInt32)
+        srid = same ? srid : bswap(srid)
+        pos = same ? 5 : 2
+        wkbheader = data[1:5]
+        wkbheader[pos] = 0x00
+        data = vcat(wkbheader, data[10:end])
+    end
+    srid, data
+end
+
 """
 Create a geometry object of the appropriate type from its well known text
 (WKT) representation.
